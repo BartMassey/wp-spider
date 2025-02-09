@@ -1,72 +1,89 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::mpsc;
 use std::thread;
 use std::time;
 
+use threadpool::ThreadPool;
 use wikipedia::{http::default::Client, Wikipedia};
+
+const NWORKERS: usize = 20;
 
 const MAX_DEPTH: usize = 2;
 
 // Requests per second.
-const RATE_LIMIT: usize = 10;
+const RATE_LIMIT: f32 = 10.0;
+
+type EdgeSender = mpsc::Sender<(usize, String, String)>;
 
 struct State {
-    wp: Wikipedia<Client>,
-    q: VecDeque<(usize, String)>,
-    s: BTreeMap<String, BTreeSet<String>>,
+    tp: ThreadPool,
+    tx: EdgeSender,
     st: time::Instant,
 }
 
 impl State {
-    fn new(start: &str) -> Self {
-        let wp = Wikipedia::new(Client::default());
-        let q = VecDeque::new();
-        let s = BTreeMap::new();
+    fn new(tx: EdgeSender) -> Self {
+        let tp = ThreadPool::new(NWORKERS);
         let st = time::Instant::now();
-        let mut result = Self { wp, q, s, st };
-        result.step(start.into(), 0);
-        result
+        Self { tp, tx, st }
     }
 
-    fn step(&mut self, title: String, depth: usize) {
-        if depth >= MAX_DEPTH {
-            return;
-        }
-
-        
-        let nfound = self.s.len();
-        self.s.entry(title).or_insert_with_key(|k| {
-            let dt = self.st.elapsed().as_secs_f32();
-            let page_no = nfound as f32 + 1.0;
-            let rl = RATE_LIMIT as f32;
-            if dt * rl > 1.0 && page_no > dt * rl {
-                let st = page_no / rl - dt;
-                eprintln!("{}s sleep", st);
-                thread::sleep(time::Duration::from_secs_f32(st));
-            }
-
-            let page = self.wp.page_from_title(k.into());
-            let links: BTreeSet<String> = page
+    fn step(&self, depth: usize, title: String) {
+        let tx = self.tx.clone();
+        self.tp.execute(move || {
+            let wp = Wikipedia::new(Client::default());
+            let page = wp.page_from_title(title.clone());
+            let links = page
                 .get_links()
                 .unwrap()
-                .map(|l| l.title)
-                .collect();
-            for l in &links {
-                self.q.push_back((depth + 1, l.into()));
+                .map(|l| l.title);
+            for l in links {
+                tx.send((depth + 1, title.clone(), l)).unwrap();
             }
-            links
         });
     }
 }
 
 fn main() {
-    let mut state = State::new("Rust (programming language)");
-    while let Some((depth, title)) = state.q.pop_front() {
-        let rate = state.s.len() as f32 / state.st.elapsed().as_secs_f32();
-        eprintln!("{} rps", rate);
-        state.step(title, depth);
+    let mut s = BTreeMap::new();
+    let (tx, rx) = mpsc::channel();
+    let state = State::new(tx);
+    state.step(0, "Rust (programming language)".into());
+    let mut nreqs = 1;
+
+    while let Ok((depth, page_title, link_title)) = rx.recv() {
+        if depth >= MAX_DEPTH || s.contains_key(&link_title) {
+            continue;
+        }
+
+        eprintln!("{} → {}", page_title, link_title);
+
+        s.entry(page_title)
+            .and_modify(|v: &mut BTreeSet<String>| {
+                v.insert(link_title.clone());
+            })
+            .or_insert_with(|| {
+                let mut vs = BTreeSet::new();
+                vs.insert(link_title.clone());
+                vs
+            });
+
+        nreqs += 1;
+        let page_no = nreqs as f32;
+        let secs = state.st.elapsed().as_secs_f32();
+        if page_no > secs * RATE_LIMIT {
+            let st = page_no / RATE_LIMIT - secs;
+            eprintln!("{}s sleep", st);
+            thread::sleep(time::Duration::from_secs_f32(st));
+        }
+
+        state.step(depth, link_title);
+
+        let secs = state.st.elapsed().as_secs_f32();
+        eprintln!("{} rps", nreqs as f32 / secs);
     }
 
-    for (k, vs) in state.s {
+    for (k, vs) in s {
         println!("{:?}", k);
         for v in vs {
             println!("  {:?}", v);

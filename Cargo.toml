@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+threadpool = "1.8.1"
 wikipedia = "0.4.0"
 #reqwest = { version = "0.12.12", features = ["blocking"] }
