@@ -1,8 +1,9 @@
 # wp-spider: simple wikipedia spider
 Bart Massey 2025
 
-This tiny demo shows thread-parallel spidering of a bit of
-Wikipedia.
+This tiny demo shows spidering of a bit of Wikipedia. The
+`main` branch is sequential and very slow. The `threads`
+branch is thread-parallel and still buggy.
 
 This is a toy, a work-in-progress, etc. Please don't take it
 seriously, at least for now.
