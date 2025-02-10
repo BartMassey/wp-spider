@@ -1356,7 +1356,8 @@ dependencies = [
 
 [[package]]
 name = "wikipedia"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/BartMassey-upstream/wikipedia-rs?branch=bart-stuff#3aba4fb18f62fde1eedc58198ad124fe98c7d806"
 dependencies = [
  "reqwest",
  "serde_json",

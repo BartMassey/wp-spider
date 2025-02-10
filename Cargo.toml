@@ -6,8 +6,8 @@ edition = "2021"
 [dependencies]
 serde_json = "1.0.138"
 threadpool = "1.8.1"
-#wikipedia = "0.4.0"
 
 [dependencies.wikipedia]
-version = "0.4.0"
-path = "/usr/local/src/old/wikipedia-rs"
+version = "0.5.0"
+git = "https://github.com/BartMassey-upstream/wikipedia-rs"
+branch = "bart-stuff"
