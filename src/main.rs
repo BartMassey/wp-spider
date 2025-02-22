@@ -7,23 +7,26 @@ use std::time;
 use clap::Parser;
 use serde_json::Value as JsonValue;
 use threadpool::ThreadPool;
-use wikipedia::{http::{default::Client, HttpClient}, Wikipedia};
+use wikipedia::{
+    http::{default::Client, HttpClient},
+    Wikipedia,
+};
 
 const WIKIPEDIA_KEYFILE: &str = ".wikimedia-api-key";
 
 #[derive(Debug, Parser)]
 struct Args {
     /// Title of starting wikipedia page.
-    #[arg(short, long, default_value="Rust (programming language)")]
+    #[arg(short, long, default_value = "Rust (programming language)")]
     root: String,
     /// Recursion depth including root node.
-    #[arg(short, long, default_value="3")]
+    #[arg(short, long, default_value = "3")]
     depth: usize,
     /// Rate limit in requests per second.
-    #[arg(short, long, default_value="1.5")]
+    #[arg(short, long, default_value = "1.5")]
     limit: f32,
     /// Worker count for thread pool.
-    #[arg(short, long, default_value="20")]
+    #[arg(short, long, default_value = "20")]
     workers: usize,
 }
 
@@ -75,10 +78,7 @@ impl State {
             let wp = Wikipedia::new(client);
 
             let page = wp.page_from_title(title.clone());
-            let links = page
-                .get_links()
-                .unwrap()
-                .map(|l| l.title);
+            let links = page.get_links().unwrap().map(|l| l.title);
             for l in links {
                 tx.send(Some((depth + 1, title.clone(), l))).unwrap();
             }
