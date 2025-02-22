@@ -4,18 +4,28 @@ use std::sync::mpsc;
 use std::thread;
 use std::time;
 
+use clap::Parser;
 use serde_json::Value as JsonValue;
 use threadpool::ThreadPool;
 use wikipedia::{http::{default::Client, HttpClient}, Wikipedia};
 
 const WIKIPEDIA_KEYFILE: &str = ".wikimedia-api-key";
 
-const NWORKERS: usize = 20;
-
-const MAX_DEPTH: usize = 3;
-
-// Requests per second.
-const RATE_LIMIT: f32 = 1.0;
+#[derive(Debug, Parser)]
+struct Args {
+    /// Title of starting wikipedia page.
+    #[arg(short, long, default_value="Rust (programming language)")]
+    root: String,
+    /// Recursion depth including root node.
+    #[arg(short, long, default_value="3")]
+    depth: usize,
+    /// Rate limit in requests per second.
+    #[arg(short, long, default_value="1.5")]
+    limit: f32,
+    /// Worker count for thread pool.
+    #[arg(short, long, default_value="20")]
+    workers: usize,
+}
 
 fn get_wikimedia_info() -> Option<(String, String)> {
     #[allow(deprecated)]
@@ -47,8 +57,8 @@ struct State {
 }
 
 impl State {
-    fn new(tx: EdgeSender) -> Self {
-        let tp = ThreadPool::new(NWORKERS);
+    fn new(tx: EdgeSender, nworkers: usize) -> Self {
+        let tp = ThreadPool::new(nworkers);
         let st = time::Instant::now();
         let bt = get_wikimedia_info();
         Self { tp, tx, st, bt }
@@ -78,10 +88,14 @@ impl State {
 }
 
 fn main() {
-    let root = "Rust (programming language)".into();
+    let args = Args::parse();
+    let root = args.root;
+    let max_depth = args.depth;
+    let limit = args.limit;
+
     let mut s = BTreeMap::new();
     let (tx, rx) = mpsc::channel();
-    let state = State::new(tx);
+    let state = State::new(tx, args.workers);
     let mut outstanding = 1;
     state.step(0, root);
     let mut nreqs = 1;
@@ -89,7 +103,7 @@ fn main() {
     while let Ok(r) = rx.recv() {
         match r {
             Some((depth, page_title, link_title)) => {
-                if depth >= MAX_DEPTH || s.contains_key(&link_title) {
+                if depth >= max_depth || s.contains_key(&link_title) {
                     continue;
                 }
 
@@ -108,8 +122,8 @@ fn main() {
                 nreqs += 1;
                 let page_no = nreqs as f32;
                 let secs = state.st.elapsed().as_secs_f32();
-                if page_no > secs * RATE_LIMIT {
-                    let st = page_no / RATE_LIMIT - secs;
+                if page_no > secs * limit {
+                    let st = page_no / limit - secs;
                     eprintln!("{}s sleep", st);
                     thread::sleep(time::Duration::from_secs_f32(st));
                 }
