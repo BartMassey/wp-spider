@@ -1477,7 +1477,8 @@ dependencies = [
 [[package]]
 name = "wikipedia"
 version = "0.5.0"
-source = "git+https://github.com/BartMassey-upstream/wikipedia-rs?branch=bart-stuff#3aba4fb18f62fde1eedc58198ad124fe98c7d806"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d1862a480c756c18d13e3e4bb262ff9f8a09e42385e2a2cdd4eb79041ebd68a"
 dependencies = [
  "reqwest",
  "serde_json",

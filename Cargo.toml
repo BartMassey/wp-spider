@@ -4,11 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap = { version = "4.5.29", features = ["derive"] }
 serde_json = "1.0.138"
 threadpool = "1.8.1"
+wikipedia = "0.5.0"
 
-[dependencies.wikipedia]
-version = "0.5.0"
-git = "https://github.com/BartMassey-upstream/wikipedia-rs"
-branch = "bart-stuff"
+[dependencies.clap]
+version = "4.5.29"
+features = ["derive"]
