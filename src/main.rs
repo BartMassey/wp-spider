@@ -20,7 +20,7 @@ struct Args {
     #[arg(short, long, default_value = "Rust (programming language)")]
     root: String,
     /// Recursion depth including root node.
-    #[arg(short, long, default_value = "3")]
+    #[arg(short, long, default_value = "1")]
     depth: usize,
     /// Rate limit in requests per second.
     #[arg(short, long, default_value = "1.5")]
@@ -50,17 +50,40 @@ fn get_wikimedia_info() -> Option<(String, String)> {
     None
 }
 
-type EdgeSender = mpsc::Sender<Option<(usize, String, String)>>;
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
+struct Link {
+    depth: usize,
+    title: String,
+}
+
+impl Link {
+    fn new(depth: usize, title: String) -> Self {
+        Self { depth, title }
+    }
+}
+
+struct Entry {
+    title: String,
+    links: BTreeSet<Link>,
+}
+
+impl Entry {
+    fn new(title: String, links: BTreeSet<Link>) -> Self {
+        Self { title, links }
+    }
+}
+
+type EntrySender = mpsc::Sender<Entry>;
 
 struct State {
     tp: ThreadPool,
-    tx: EdgeSender,
+    tx: EntrySender,
     st: time::Instant,
     bt: Option<(String, String)>,
 }
 
 impl State {
-    fn new(tx: EdgeSender, nworkers: usize) -> Self {
+    fn new(tx: EntrySender, nworkers: usize) -> Self {
         let tp = ThreadPool::new(nworkers);
         let st = time::Instant::now();
         let bt = get_wikimedia_info();
@@ -78,11 +101,13 @@ impl State {
             let wp = Wikipedia::new(client);
 
             let page = wp.page_from_title(title.clone());
-            let links = page.get_links().unwrap().map(|l| l.title);
-            for l in links {
-                tx.send(Some((depth + 1, title.clone(), l))).unwrap();
-            }
-            tx.send(None).unwrap();
+            let links = page
+                .get_links()
+                .unwrap()
+                .map(|l| Link::new(depth + 1, l.title))
+                .collect();
+            let entry = Entry::new(title, links);
+            let _ = tx.send(entry);
         });
     }
 }
@@ -98,49 +123,37 @@ fn main() {
     let state = State::new(tx, args.workers);
     let mut outstanding = 1;
     state.step(0, root);
-    let mut nreqs = 1;
 
-    while let Ok(r) = rx.recv() {
-        match r {
-            Some((depth, page_title, link_title)) => {
-                if depth >= max_depth || s.contains_key(&link_title) {
-                    continue;
-                }
-
-                eprintln!("{} → {}", page_title, link_title);
-
-                s.entry(page_title)
-                    .and_modify(|v: &mut BTreeSet<String>| {
-                        v.insert(link_title.clone());
-                    })
-                    .or_insert_with(|| {
-                        let mut vs = BTreeSet::new();
-                        vs.insert(link_title.clone());
-                        vs
-                    });
-
-                nreqs += 1;
-                let page_no = nreqs as f32;
-                let secs = state.st.elapsed().as_secs_f32();
-                if page_no > secs * limit {
-                    let st = page_no / limit - secs;
-                    eprintln!("{}s sleep", st);
-                    thread::sleep(time::Duration::from_secs_f32(st));
-                }
-
-                outstanding += 1;
-                state.step(depth, link_title);
-
-                let secs = state.st.elapsed().as_secs_f32();
-                eprintln!("{} rps", nreqs as f32 / secs);
-            }
-            None => {
-                outstanding -= 1;
-                if outstanding == 0 {
-                    break;
-                }
-            }
+    for page_no in 1.. {
+        if outstanding == 0 {
+            break;
         }
+        let entry = rx.recv().unwrap();
+        for l in &entry.links {
+            if l.depth >= max_depth || s.contains_key(&l.title) {
+                continue;
+            }
+
+            eprintln!("{} → {} ({})", entry.title, l.title, l.depth);
+
+            let secs = state.st.elapsed().as_secs_f32();
+            if page_no as f32 > secs * limit {
+                let st = page_no as f32 / limit - secs;
+                eprintln!("{}s sleep", st);
+                thread::sleep(time::Duration::from_secs_f32(st));
+            }
+
+            outstanding += 1;
+            state.step(l.depth, l.title.clone());
+
+            let secs = state.st.elapsed().as_secs_f32();
+            eprintln!("{} rps", page_no as f32 / secs);
+        }
+
+        if s.insert(entry.title, entry.links).is_some() {
+            panic!("internal error: re-inserted link");
+        }
+        outstanding -= 1;
     }
 
     for (k, vs) in s {
