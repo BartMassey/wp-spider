@@ -5,6 +5,7 @@ use std::thread;
 use std::time;
 
 use clap::Parser;
+use serde::Serialize;
 use serde_json::Value as JsonValue;
 use threadpool::ThreadPool;
 use wikipedia::{
@@ -28,6 +29,9 @@ struct Args {
     /// Worker count for thread pool.
     #[arg(short, long, default_value = "20")]
     workers: usize,
+    /// Output JSON file.
+    #[arg(short, long, default_value = "map.json")]
+    outfile: String,
 }
 
 fn get_wikimedia_info() -> Option<(String, String)> {
@@ -50,7 +54,7 @@ fn get_wikimedia_info() -> Option<(String, String)> {
     None
 }
 
-#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Serialize)]
 struct Link {
     depth: usize,
     title: String,
@@ -62,6 +66,7 @@ impl Link {
     }
 }
 
+#[derive(Debug, Serialize)]
 struct Entry {
     title: String,
     links: BTreeSet<Link>,
@@ -156,10 +161,6 @@ fn main() {
         outstanding -= 1;
     }
 
-    for (k, vs) in s {
-        println!("{:?}", k);
-        for v in vs {
-            println!("  {:?}", v);
-        }
-    }
+    let output = File::create(args.outfile).unwrap();
+    serde_json::to_writer(output, &s).unwrap();
 }
